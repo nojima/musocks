@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
+slog = { version = "2" }
+slog-term = { version = "2" }
