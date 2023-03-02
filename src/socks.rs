@@ -105,7 +105,7 @@ impl Handler {
         cmd: u8,
     ) -> anyhow::Result<TcpStream> {
         let request = self.read_connect_request(client, cmd).await?;
-        self.return_reply(client).await?;
+        self.write_reply(client).await?;
         self.connect_to_upstream(request.upstream_addr).await
     }
 
@@ -131,7 +131,7 @@ impl Handler {
         })
     }
 
-    async fn return_reply(&self, client: &mut (impl AsyncWrite + Unpin)) -> io::Result<()> {
+    async fn write_reply(&self, client: &mut (impl AsyncWrite + Unpin)) -> io::Result<()> {
         let buf: [u8; 1 + 1 + 2 + 4] = [
             0,    // VN
             0x5A, // REP
@@ -165,6 +165,9 @@ impl Handler {
         mut reader: impl AsyncRead + Unpin,
         mut writer: impl AsyncWrite + Unpin,
     ) -> io::Result<u64> {
-        tokio::io::copy(&mut reader, &mut writer).await
+        let n = tokio::io::copy(&mut reader, &mut writer).await?;
+        drop(writer);
+        drop(reader);
+        Ok(n)
     }
 }
