@@ -1,10 +1,9 @@
-mod socks4;
 mod server;
+mod socks4;
+mod socks5;
 
-use std::{
-    net::IpAddr,
-    fmt::{Display, Formatter},
-};
+use std::fmt::{Display, Formatter};
+use std::net::IpAddr;
 
 pub use server::Server;
 

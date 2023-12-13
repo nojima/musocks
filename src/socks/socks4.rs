@@ -1,14 +1,8 @@
-use std::{
-    io,
-    net::{Ipv4Addr, IpAddr},
-};
+use std::io;
+use std::net::{IpAddr, Ipv4Addr};
 
-use tokio::{
-    io::{
-        AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt,
-    },
-    net::TcpStream,
-};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 use crate::socks::*;
 
@@ -46,13 +40,14 @@ async fn read_connect_request(
 }
 
 async fn write_reply(client: &mut (impl AsyncWrite + Unpin)) -> io::Result<()> {
-    let buf: [u8; 1 + 1 + 2 + 4] = [
-        0,    // VN
-        0x5A, // REP
-        0, 0, // DSTPORT
-        0, 0, 0, 0, // DSTIP
-    ];
-    client.write_all(&buf).await
+    client
+        .write_all(&[
+            0,    // VN
+            0x5A, // REP
+            0, 0, // DSTPORT
+            0, 0, 0, 0, // DSTIP
+        ])
+        .await
 }
 
 async fn connect_to_upstream(addr: (IpAddr, u16)) -> anyhow::Result<TcpStream> {

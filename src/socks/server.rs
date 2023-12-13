@@ -1,20 +1,13 @@
-use std::{
-    io,
-    net::SocketAddr,
-    time::Instant,
-};
+use std::io;
+use std::net::SocketAddr;
+use std::time::Instant;
 
 use anyhow::bail;
 use slog::{info, o};
-use tokio::{
-    io::{
-        AsyncRead, AsyncReadExt, AsyncWrite,
-        BufReader,
-    },
-    net::{TcpListener, TcpStream},
-};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
+use tokio::net::{TcpListener, TcpStream};
 
-use crate::socks::socks4;
+use crate::socks::{socks4, socks5};
 
 pub struct Server {
     pub logger: slog::Logger,
@@ -71,9 +64,8 @@ impl Handler {
 
         let version = preamble[0];
         let upstream = match version {
-            0x4 => {
-                socks4::handle(&mut reader, preamble[1]).await?
-            }
+            0x4 => socks4::handle(&mut reader, preamble[1]).await?,
+            0x5 => socks5::handle(&mut reader, preamble[1]).await?,
             _ => bail!("unsupported SOCKS version: {}", version),
         };
 
