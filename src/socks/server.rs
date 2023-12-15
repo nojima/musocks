@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use anyhow::bail;
 use slog::{info, o};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWrite, BufReader, AsyncBufRead};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::socks::{socks4, socks5};
@@ -52,25 +52,30 @@ impl Handler {
 
     async fn handle_conn(
         &self,
-        mut client: TcpStream,
+        client: TcpStream,
         client_addr: SocketAddr,
     ) -> anyhow::Result<()> {
         let started_at = Instant::now();
         info!(self.logger, "proxy start"; "client_addr" => client_addr);
 
-        let mut reader = BufReader::new(&mut client);
+        let (mut client_reader, mut client_writer) = {
+            let (r, w) = client.into_split();
+            (BufReader::new(r), w)
+        };
         let mut preamble: [u8; 2] = Default::default();
-        reader.read_exact(&mut preamble).await?;
+        client_reader.read_exact(&mut preamble).await?;
 
         let version = preamble[0];
         let upstream = match version {
-            0x4 => socks4::handle(&mut reader, preamble[1]).await?,
-            0x5 => socks5::handle(&mut reader, preamble[1]).await?,
+            0x4 => socks4::handle(&mut client_reader, &mut client_writer, preamble[1]).await?,
+            0x5 => socks5::handle(&mut client_reader, &mut client_writer, preamble[1]).await?,
             _ => bail!("unsupported SOCKS version: {}", version),
         };
 
-        let (client_reader, client_writer) = client.into_split();
-        let (upstream_reader, upstream_writer) = upstream.into_split();
+        let (upstream_reader, upstream_writer) = {
+            let (r, w) = upstream.into_split();
+            (BufReader::new(r), w)
+        };
         let (uploaded_bytes, downloaded_bytes) = self
             .do_proxy(
                 client_reader,
@@ -91,9 +96,9 @@ impl Handler {
 
     async fn do_proxy(
         &self,
-        client_reader: impl AsyncRead + Unpin,
+        client_reader: impl AsyncBufRead + Unpin,
         client_writer: impl AsyncWrite + Unpin,
-        upstream_reader: impl AsyncRead + Unpin,
+        upstream_reader: impl AsyncBufRead + Unpin,
         upstream_writer: impl AsyncWrite + Unpin,
     ) -> io::Result<(u64, u64)> {
         tokio::try_join!(
@@ -104,10 +109,10 @@ impl Handler {
 
     async fn copy_and_drop(
         &self,
-        mut reader: impl AsyncRead + Unpin,
+        mut reader: impl AsyncBufRead + Unpin,
         mut writer: impl AsyncWrite + Unpin,
     ) -> io::Result<u64> {
-        let n = tokio::io::copy(&mut reader, &mut writer).await?;
+        let n = tokio::io::copy_buf(&mut reader, &mut writer).await?;
         drop(writer);
         drop(reader);
         Ok(n)

@@ -7,20 +7,21 @@ use tokio::net::TcpStream;
 use crate::socks::*;
 
 pub async fn handle(
-    client: &mut (impl AsyncBufRead + AsyncWrite + Unpin),
+    reader: &mut (impl AsyncBufRead + Unpin),
+    writer: &mut (impl AsyncWrite + Unpin),
     cmd: u8,
 ) -> anyhow::Result<TcpStream> {
-    let request = read_connect_request(client, cmd).await?;
-    write_reply(client).await?;
+    let request = read_connect_request(reader, cmd).await?;
+    write_reply(writer).await?;
     connect_to_upstream(request.upstream_addr).await
 }
 
 async fn read_connect_request(
-    client: &mut (impl AsyncBufRead + Unpin),
+    reader: &mut (impl AsyncBufRead + Unpin),
     cmd: u8,
 ) -> anyhow::Result<Request> {
     let mut buf: [u8; 2 + 4] = Default::default();
-    client.read_exact(&mut buf).await?;
+    reader.read_exact(&mut buf).await?;
 
     if cmd != 0x1 {
         anyhow::bail!("Only CONNECT command is supported")
@@ -29,7 +30,7 @@ async fn read_connect_request(
     let dst_addr = Ipv4Addr::new(buf[2], buf[3], buf[4], buf[5]);
 
     let mut ident = Vec::new();
-    client.read_until(0, &mut ident).await?;
+    reader.read_until(0, &mut ident).await?;
 
     // TODO: handle socks4a
 
@@ -39,8 +40,8 @@ async fn read_connect_request(
     })
 }
 
-async fn write_reply(client: &mut (impl AsyncWrite + Unpin)) -> io::Result<()> {
-    client
+async fn write_reply(writer: &mut (impl AsyncWrite + Unpin)) -> io::Result<()> {
+    writer
         .write_all(&[
             0,    // VN
             0x5A, // REP
