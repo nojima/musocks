@@ -1,7 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use anyhow::{bail, Ok};
-use compact_str::CompactString;
+use anyhow::bail;
 use smallvec::smallvec;
 use tokio::io::{AsyncBufRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -40,7 +39,7 @@ enum Status {
 enum Address {
     IPv4([u8; 4]),
     IPv6([u8; 16]),
-    Domain(CompactString),
+    Domain(Bytes),
 }
 
 struct Request {
@@ -176,8 +175,7 @@ async fn read_request(
             let len = reader.read_u8().await?;
             let mut buf: Bytes = smallvec![0u8; len as usize];
             reader.read_exact(&mut buf).await?;
-            let domain = CompactString::from_utf8_lossy(&buf);
-            Address::Domain(domain)
+            Address::Domain(buf)
         }
         x => {
             bail!("unknown address type: {x}")
@@ -219,7 +217,10 @@ async fn connect_to_upstream(addr: &Address, port: u16) -> anyhow::Result<TcpStr
     let stream = match addr {
         Address::IPv4(ip) => TcpStream::connect((Ipv4Addr::from(*ip), port)).await,
         Address::IPv6(ip) => TcpStream::connect((Ipv6Addr::from(*ip), port)).await,
-        Address::Domain(d) => TcpStream::connect((d.as_str(), port)).await,
+        Address::Domain(d) => {
+            let s = std::str::from_utf8(&d)?;
+            TcpStream::connect((s, port)).await
+        }
     };
     stream.map_err(|e| anyhow::anyhow!("failed to connect to upstream: {}", e.to_string()))
 }
