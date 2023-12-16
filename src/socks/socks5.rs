@@ -1,11 +1,9 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
-
 use anyhow::bail;
 use smallvec::smallvec;
 use tokio::io::{AsyncBufRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-type Bytes = smallvec::SmallVec<[u8; 32]>;
+use crate::socks::*;
 
 pub enum Auth<'a> {
     None,
@@ -36,18 +34,6 @@ enum Status {
     CommandNotSupported = 0x07,
 }
 
-enum Address {
-    IPv4([u8; 4]),
-    IPv6([u8; 16]),
-    Domain(Bytes),
-}
-
-struct Request {
-    command: u8,
-    address: Address,
-    port: u16,
-}
-
 pub async fn handle(
     reader: &mut (impl AsyncBufRead + Unpin),
     writer: &mut (impl AsyncWrite + Unpin),
@@ -55,7 +41,7 @@ pub async fn handle(
 ) -> anyhow::Result<TcpStream> {
     negotiate_auth(reader, writer, n_auth).await?;
     let request = read_request(reader).await?;
-    if request.command != 0x01 {
+    if request.command != COMMAND_CONNECT {
         write_response(writer, Status::CommandNotSupported).await?;
         bail!("command not supported: {}", request.command);
     }
@@ -148,9 +134,7 @@ async fn negotiate_auth(
     bail!("no acceptable auth methods")
 }
 
-async fn read_request(
-    reader: &mut (impl AsyncBufRead + Unpin),
-) -> anyhow::Result<Request> {
+async fn read_request(reader: &mut (impl AsyncBufRead + Unpin)) -> anyhow::Result<Request> {
     let mut addr_buf = [0u8; 4];
     reader.read_exact(&mut addr_buf).await?;
     if addr_buf[0] != 0x05 {
@@ -211,16 +195,4 @@ fn authenticate(auth: Auth) -> AuthResult {
         Auth::None => AuthResult::Accept,
         Auth::Basic { .. } => AuthResult::Deny,
     }
-}
-
-async fn connect_to_upstream(addr: &Address, port: u16) -> anyhow::Result<TcpStream> {
-    let stream = match addr {
-        Address::IPv4(ip) => TcpStream::connect((Ipv4Addr::from(*ip), port)).await,
-        Address::IPv6(ip) => TcpStream::connect((Ipv6Addr::from(*ip), port)).await,
-        Address::Domain(d) => {
-            let s = std::str::from_utf8(&d)?;
-            TcpStream::connect((s, port)).await
-        }
-    };
-    stream.map_err(|e| anyhow::anyhow!("failed to connect to upstream: {}", e.to_string()))
 }
