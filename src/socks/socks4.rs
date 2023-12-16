@@ -59,14 +59,12 @@ async fn read_request(reader: &mut (impl AsyncBufRead + Unpin), cmd: u8) -> io::
 
 async fn write_response(writer: &mut (impl AsyncWrite + Unpin), status: Status) -> io::Result<()> {
     #[rustfmt::skip]
-    writer
-        .write_all(&[
-            0,            // VN
-            status as u8, // REP
-            0, 0,         // DSTPORT
-            0, 0, 0, 0,   // DSTIP
-        ])
-        .await?;
+    writer.write_all(&[
+        0,            // VN
+        status as u8, // REP
+        0, 0,         // DSTPORT
+        0, 0, 0, 0,   // DSTIP
+    ]).await?;
     Ok(())
 }
 
