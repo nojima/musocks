@@ -61,7 +61,7 @@ impl Handler {
         client_reader.read_exact(&mut preamble).await?;
 
         let version = preamble[0];
-        let upstream = match version {
+        let (request, upstream) = match version {
             SOCKS4 => {
                 socks4::handshake(&mut client_reader, &mut client_writer, preamble[1]).await?
             }
@@ -86,6 +86,8 @@ impl Handler {
 
         let elapsed = started_at.elapsed();
         info!(self.logger, "proxy done";
+            "upstream_address" => %request.address,
+            "upstream_port" => request.port,
             "downloaded_bytes" => downloaded_bytes,
             "uploaded_bytes" => uploaded_bytes,
             "elapsed" => ?elapsed,

@@ -45,7 +45,7 @@ pub async fn handshake(
     reader: &mut (impl AsyncBufRead + Unpin),
     writer: &mut (impl AsyncWrite + Unpin),
     n_auth: u8,
-) -> Result<TcpStream> {
+) -> Result<(Request, TcpStream)> {
     authenticate_client(reader, writer, n_auth).await?;
     let request = read_request(reader, writer).await?;
     if request.command != COMMAND_CONNECT {
@@ -60,7 +60,7 @@ pub async fn handshake(
         }
     };
     write_response(writer, Status::Granted).await?;
-    Ok(upstream)
+    Ok((request, upstream))
 }
 
 async fn authenticate_client(

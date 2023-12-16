@@ -15,7 +15,7 @@ pub async fn handshake(
     reader: &mut (impl AsyncBufRead + Unpin),
     writer: &mut (impl AsyncWrite + Unpin),
     cmd: u8,
-) -> Result<TcpStream> {
+) -> Result<(Request, TcpStream)> {
     let request = read_request(reader, cmd).await?;
     if request.command != COMMAND_CONNECT {
         write_response(writer, Status::RejectedOrFailed).await?;
@@ -29,7 +29,7 @@ pub async fn handshake(
         }
     };
     write_response(writer, Status::Granted).await?;
-    Ok(upstream)
+    Ok((request, upstream))
 }
 
 async fn read_request(reader: &mut (impl AsyncBufRead + Unpin), cmd: u8) -> io::Result<Request> {

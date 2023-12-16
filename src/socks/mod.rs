@@ -2,6 +2,7 @@ mod server;
 mod socks4;
 mod socks5;
 
+use std::fmt::{self, Display, Formatter};
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -27,10 +28,21 @@ enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
 enum Address {
     IPv4([u8; 4]),
     IPv6([u8; 16]),
     Domain(ByteBuf),
+}
+
+impl Display for Address {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Address::IPv4(i) => Ipv4Addr::from(*i).fmt(f),
+            Address::IPv6(i) => Ipv6Addr::from(*i).fmt(f),
+            Address::Domain(d) => String::from_utf8_lossy(&d).fmt(f),
+        }
+    }
 }
 
 // Request represents a request from SOCKS client.
