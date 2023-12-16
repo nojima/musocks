@@ -33,11 +33,10 @@ pub async fn handshake(
 }
 
 async fn read_request(reader: &mut (impl AsyncBufRead + Unpin), cmd: u8) -> Result<Request> {
-    let mut buf = [0u8; 2 + 4];
-    reader.read_exact(&mut buf).await?;
+    let dst_port = reader.read_u16().await?;
 
-    let dst_port = u16::from_be_bytes([buf[0], buf[1]]);
-    let dst_addr = [buf[2], buf[3], buf[4], buf[5]];
+    let mut dst_addr = [0u8; 4];
+    reader.read_exact(&mut dst_addr).await?;
 
     let mut ident = Vec::new();
     reader.read_until(0, &mut ident).await?;
@@ -45,7 +44,7 @@ async fn read_request(reader: &mut (impl AsyncBufRead + Unpin), cmd: u8) -> Resu
     let dst_addr = if is_socks4a(dst_addr) {
         let mut domain = Vec::new();
         reader.read_until(0, &mut domain).await?;
-        domain.pop();
+        domain.pop(); // remove NUL
         Address::Domain(domain.into())
     } else {
         Address::IPv4(dst_addr)
