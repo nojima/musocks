@@ -106,7 +106,7 @@ async fn authenticate_client(
 async fn read_available_methods(
     reader: &mut (impl AsyncBufRead + Unpin),
     n_auth: u8,
-) -> Result<ByteBuf> {
+) -> io::Result<ByteBuf> {
     let mut buf = smallvec![0u8; n_auth as usize];
     reader.read_exact(&mut buf).await?;
     Ok(buf)
@@ -115,14 +115,14 @@ async fn read_available_methods(
 async fn write_server_choice(
     writer: &mut (impl AsyncWrite + Unpin),
     chosen_auth_method: AuthMethod,
-) -> Result<()> {
+) -> io::Result<()> {
     writer.write_all(&[0x05, chosen_auth_method as u8]).await?;
     Ok(())
 }
 
 async fn read_username_and_password(
     reader: &mut (impl AsyncBufRead + Unpin),
-) -> Result<(ByteBuf, ByteBuf)> {
+) -> io::Result<(ByteBuf, ByteBuf)> {
     // read auth version
     let _ = reader.read_u8().await?;
 
@@ -142,7 +142,7 @@ async fn read_username_and_password(
 async fn write_auth_response(
     writer: &mut (impl AsyncWrite + Unpin),
     status: AuthStatus,
-) -> Result<()> {
+) -> io::Result<()> {
     writer.write_all(&[0x01, status as u8]).await?;
     Ok(())
 }
@@ -190,7 +190,7 @@ async fn read_request(
     })
 }
 
-async fn write_response(writer: &mut (impl AsyncWrite + Unpin), status: Status) -> Result<()> {
+async fn write_response(writer: &mut (impl AsyncWrite + Unpin), status: Status) -> io::Result<()> {
     #[rustfmt::skip]
     writer.write_all(&[
         0x05,                   // version

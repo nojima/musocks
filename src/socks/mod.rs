@@ -2,6 +2,7 @@ mod server;
 mod socks4;
 mod socks5;
 
+use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 pub use server::Server;
@@ -39,10 +40,7 @@ struct Request {
     port: u16,
 }
 
-async fn connect_to_upstream(
-    addr: &Address,
-    port: u16,
-) -> std::result::Result<TcpStream, std::io::Error> {
+async fn connect_to_upstream(addr: &Address, port: u16) -> io::Result<TcpStream> {
     let stream = match addr {
         Address::IPv4(ip) => TcpStream::connect((Ipv4Addr::from(*ip), port)).await,
         Address::IPv6(ip) => TcpStream::connect((Ipv6Addr::from(*ip), port)).await,

@@ -32,7 +32,7 @@ pub async fn handshake(
     Ok(upstream)
 }
 
-async fn read_request(reader: &mut (impl AsyncBufRead + Unpin), cmd: u8) -> Result<Request> {
+async fn read_request(reader: &mut (impl AsyncBufRead + Unpin), cmd: u8) -> io::Result<Request> {
     let dst_port = reader.read_u16().await?;
 
     let mut dst_addr = [0u8; 4];
