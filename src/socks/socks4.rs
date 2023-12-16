@@ -32,12 +32,19 @@ async fn read_connect_request(
         anyhow::bail!("Only CONNECT command is supported")
     }
     let dst_port = u16::from_be_bytes([buf[0], buf[1]]);
-    let dst_addr = Address::IPv4([buf[2], buf[3], buf[4], buf[5]]);
+    let dst_addr = [buf[2], buf[3], buf[4], buf[5]];
 
     let mut ident = Vec::new();
     reader.read_until(0, &mut ident).await?;
 
-    // TODO: handle socks4a
+    let dst_addr = if is_socks4a(dst_addr) {
+        let mut domain = Vec::new();
+        reader.read_until(0, &mut domain).await?;
+        domain.pop();
+        Address::Domain(domain.into())
+    } else {
+        Address::IPv4(dst_addr)
+    };
 
     Ok(Request {
         command: cmd,
@@ -46,10 +53,7 @@ async fn read_connect_request(
     })
 }
 
-async fn write_response(
-    writer: &mut (impl AsyncWrite + Unpin),
-    status: Status,
-) -> io::Result<()> {
+async fn write_response(writer: &mut (impl AsyncWrite + Unpin), status: Status) -> io::Result<()> {
     #[rustfmt::skip]
     writer
         .write_all(&[
@@ -60,4 +64,8 @@ async fn write_response(
         ])
         .await?;
     Ok(())
+}
+
+fn is_socks4a(dst_addr: [u8; 4]) -> bool {
+    dst_addr[0] == 0 && dst_addr[1] == 0 && dst_addr[2] == 0 && dst_addr[3] != 0
 }

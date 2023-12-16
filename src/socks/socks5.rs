@@ -7,7 +7,7 @@ use crate::socks::*;
 
 pub enum Auth<'a> {
     None,
-    Basic { id: &'a [u8], password: &'a [u8] },
+    UsernamePassword { id: &'a [u8], password: &'a [u8] },
 }
 
 pub enum AuthResult {
@@ -18,7 +18,7 @@ pub enum AuthResult {
 #[repr(u8)]
 enum AuthMethod {
     None = 0x00,
-    Basic = 0x02,
+    UsernamePassword = 0x02,
     NoAcceptableMethods = 0xff,
 }
 
@@ -101,10 +101,10 @@ async fn negotiate_auth(
 ) -> anyhow::Result<()> {
     let methods = read_available_methods(reader, n_auth).await?;
 
-    if methods.contains(&(AuthMethod::Basic as u8)) {
-        write_server_choice(writer, AuthMethod::Basic).await?;
+    if methods.contains(&(AuthMethod::UsernamePassword as u8)) {
+        write_server_choice(writer, AuthMethod::UsernamePassword).await?;
         let (id, password) = read_basic_auth_credential(reader).await?;
-        match authenticate(Auth::Basic {
+        match authenticate(Auth::UsernamePassword {
             id: &id,
             password: &password,
         }) {
@@ -193,6 +193,6 @@ fn authenticate(auth: Auth) -> AuthResult {
     // TODO
     match auth {
         Auth::None => AuthResult::Accept,
-        Auth::Basic { .. } => AuthResult::Deny,
+        Auth::UsernamePassword { .. } => AuthResult::Deny,
     }
 }
