@@ -13,7 +13,7 @@ const SOCKS5: u8 = 5;
 
 const COMMAND_CONNECT: u8 = 0x01;
 
-type Bytes = smallvec::SmallVec<[u8; 32]>;
+type ByteBuf = smallvec::SmallVec<[u8; 32]>;
 
 #[derive(Error, Debug)]
 enum Error {
@@ -29,7 +29,7 @@ type Result<T> = std::result::Result<T, Error>;
 enum Address {
     IPv4([u8; 4]),
     IPv6([u8; 16]),
-    Domain(Bytes),
+    Domain(ByteBuf),
 }
 
 // Request represents a request from SOCKS client.

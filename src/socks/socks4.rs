@@ -5,7 +5,6 @@ use tokio::net::TcpStream;
 
 use crate::socks::*;
 
-#[derive(Debug)]
 #[repr(u8)]
 enum Status {
     Granted = 0x5a,
@@ -17,7 +16,7 @@ pub async fn handshake(
     writer: &mut (impl AsyncWrite + Unpin),
     cmd: u8,
 ) -> Result<TcpStream> {
-    let request = read_connect_request(reader, cmd).await?;
+    let request = read_request(reader, cmd).await?;
     if request.command != COMMAND_CONNECT {
         write_response(writer, Status::RejectedOrFailed).await?;
         return Err(Error::ProtocolError("command not supported"));
@@ -33,10 +32,7 @@ pub async fn handshake(
     Ok(upstream)
 }
 
-async fn read_connect_request(
-    reader: &mut (impl AsyncBufRead + Unpin),
-    cmd: u8,
-) -> Result<Request> {
+async fn read_request(reader: &mut (impl AsyncBufRead + Unpin), cmd: u8) -> Result<Request> {
     let mut buf = [0u8; 2 + 4];
     reader.read_exact(&mut buf).await?;
 
