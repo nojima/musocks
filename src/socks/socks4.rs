@@ -5,32 +5,41 @@ use tokio::net::TcpStream;
 
 use crate::socks::*;
 
+#[derive(Debug)]
 #[repr(u8)]
 enum Status {
     Granted = 0x5a,
+    RejectedOrFailed = 0x5b,
 }
 
-pub async fn handle(
+pub async fn handshake(
     reader: &mut (impl AsyncBufRead + Unpin),
     writer: &mut (impl AsyncWrite + Unpin),
     cmd: u8,
-) -> anyhow::Result<TcpStream> {
+) -> Result<TcpStream> {
     let request = read_connect_request(reader, cmd).await?;
-    let stream = connect_to_upstream(&request.address, request.port).await?;
+    if request.command != COMMAND_CONNECT {
+        write_response(writer, Status::RejectedOrFailed).await?;
+        return Err(Error::ProtocolError("command not supported"));
+    }
+    let upstream = match connect_to_upstream(&request.address, request.port).await {
+        Ok(upstream) => upstream,
+        Err(e) => {
+            write_response(writer, Status::RejectedOrFailed).await?;
+            return Err(Error::IoError(e));
+        }
+    };
     write_response(writer, Status::Granted).await?;
-    Ok(stream)
+    Ok(upstream)
 }
 
 async fn read_connect_request(
     reader: &mut (impl AsyncBufRead + Unpin),
     cmd: u8,
-) -> anyhow::Result<Request> {
+) -> Result<Request> {
     let mut buf = [0u8; 2 + 4];
     reader.read_exact(&mut buf).await?;
 
-    if cmd != COMMAND_CONNECT {
-        anyhow::bail!("Only CONNECT command is supported")
-    }
     let dst_port = u16::from_be_bytes([buf[0], buf[1]]);
     let dst_addr = [buf[2], buf[3], buf[4], buf[5]];
 

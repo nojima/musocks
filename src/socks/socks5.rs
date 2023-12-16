@@ -1,4 +1,3 @@
-use anyhow::bail;
 use smallvec::smallvec;
 use tokio::io::{AsyncBufRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -31,21 +30,32 @@ enum AuthStatus {
 #[repr(u8)]
 enum Status {
     Granted = 0x00,
+    GeneralFailure = 0x01,
+    NetworkUnreachable = 0x03,
+    HostUnreachable = 0x04,
+    ConnectionRefused = 0x05,
     CommandNotSupported = 0x07,
+    AddressTypeNotSupported = 0x08,
 }
 
-pub async fn handle(
+pub async fn handshake(
     reader: &mut (impl AsyncBufRead + Unpin),
     writer: &mut (impl AsyncWrite + Unpin),
     n_auth: u8,
-) -> anyhow::Result<TcpStream> {
+) -> Result<TcpStream> {
     negotiate_auth(reader, writer, n_auth).await?;
-    let request = read_request(reader).await?;
+    let request = read_request(reader, writer).await?;
     if request.command != COMMAND_CONNECT {
         write_response(writer, Status::CommandNotSupported).await?;
-        bail!("command not supported: {}", request.command);
+        return Err(Error::ProtocolError("command not supported"));
     }
-    let upstream = connect_to_upstream(&request.address, request.port).await?;
+    let upstream = match connect_to_upstream(&request.address, request.port).await {
+        Ok(upstream) => upstream,
+        Err(e) => {
+            write_response(writer, io_error_to_status(&e)).await?;
+            return Err(Error::IoError(e));
+        }
+    };
     write_response(writer, Status::Granted).await?;
     Ok(upstream)
 }
@@ -53,7 +63,7 @@ pub async fn handle(
 async fn read_available_methods(
     reader: &mut (impl AsyncBufRead + Unpin),
     n_auth: u8,
-) -> anyhow::Result<Bytes> {
+) -> Result<Bytes> {
     let mut buf = smallvec![0u8; n_auth as usize];
     reader.read_exact(&mut buf).await?;
     Ok(buf)
@@ -62,14 +72,14 @@ async fn read_available_methods(
 async fn write_server_choice(
     writer: &mut (impl AsyncWrite + Unpin),
     chosen_auth_method: AuthMethod,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     writer.write_all(&[0x05, chosen_auth_method as u8]).await?;
     Ok(())
 }
 
 async fn read_basic_auth_credential(
     reader: &mut (impl AsyncBufRead + Unpin),
-) -> anyhow::Result<(Bytes, Bytes)> {
+) -> Result<(Bytes, Bytes)> {
     // read auth version
     let _ = reader.read_u8().await?;
 
@@ -89,7 +99,7 @@ async fn read_basic_auth_credential(
 async fn write_auth_response(
     writer: &mut (impl AsyncWrite + Unpin),
     status: AuthStatus,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     writer.write_all(&[0x01, status as u8]).await?;
     Ok(())
 }
@@ -98,7 +108,7 @@ async fn negotiate_auth(
     reader: &mut (impl AsyncBufRead + Unpin),
     writer: &mut (impl AsyncWrite + Unpin),
     n_auth: u8,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let methods = read_available_methods(reader, n_auth).await?;
 
     if methods.contains(&(AuthMethod::UsernamePassword as u8)) {
@@ -111,7 +121,7 @@ async fn negotiate_auth(
             AuthResult::Accept => {}
             AuthResult::Deny => {
                 write_auth_response(writer, AuthStatus::Failure).await?;
-                bail!("authentication failure")
+                return Err(Error::ProtocolError("authentication failure"));
             }
         }
         write_auth_response(writer, AuthStatus::Success).await?;
@@ -123,7 +133,7 @@ async fn negotiate_auth(
             AuthResult::Accept => {}
             AuthResult::Deny => {
                 write_server_choice(writer, AuthMethod::NoAcceptableMethods).await?;
-                bail!("no acceptable auth methods")
+                return Err(Error::ProtocolError("no acceptable auth methods"));
             }
         }
         write_server_choice(writer, AuthMethod::None).await?;
@@ -131,14 +141,17 @@ async fn negotiate_auth(
     }
 
     write_server_choice(writer, AuthMethod::NoAcceptableMethods).await?;
-    bail!("no acceptable auth methods")
+    Err(Error::ProtocolError("no acceptable auth methods"))
 }
 
-async fn read_request(reader: &mut (impl AsyncBufRead + Unpin)) -> anyhow::Result<Request> {
+async fn read_request(
+    reader: &mut (impl AsyncBufRead + Unpin),
+    writer: &mut (impl AsyncWrite + Unpin),
+) -> Result<Request> {
     let mut addr_buf = [0u8; 4];
     reader.read_exact(&mut addr_buf).await?;
     if addr_buf[0] != 0x05 {
-        bail!("request is not SOCKS5");
+        return Err(Error::ProtocolError("request is not SOCKS5"));
     }
     let command = addr_buf[1];
     let address = match addr_buf[3] {
@@ -161,8 +174,9 @@ async fn read_request(reader: &mut (impl AsyncBufRead + Unpin)) -> anyhow::Resul
             reader.read_exact(&mut buf).await?;
             Address::Domain(buf)
         }
-        x => {
-            bail!("unknown address type: {x}")
+        _ => {
+            write_response(writer, Status::AddressTypeNotSupported).await?;
+            return Err(Error::ProtocolError("unknown address type"));
         }
     };
     let port = reader.read_u16().await?;
@@ -173,10 +187,7 @@ async fn read_request(reader: &mut (impl AsyncBufRead + Unpin)) -> anyhow::Resul
     })
 }
 
-async fn write_response(
-    writer: &mut (impl AsyncWrite + Unpin),
-    status: Status,
-) -> anyhow::Result<()> {
+async fn write_response(writer: &mut (impl AsyncWrite + Unpin), status: Status) -> Result<()> {
     #[rustfmt::skip]
     writer.write_all(&[
         0x05,                   // version
@@ -194,5 +205,17 @@ fn authenticate(auth: Auth) -> AuthResult {
     match auth {
         Auth::None => AuthResult::Accept,
         Auth::UsernamePassword { .. } => AuthResult::Deny,
+    }
+}
+
+fn io_error_to_status(e: &std::io::Error) -> Status {
+    match e.raw_os_error().unwrap_or(0) {
+        // ENETUNREACH
+        101 => Status::NetworkUnreachable,
+        // ECONNREFUSED
+        111 => Status::ConnectionRefused,
+        // EHOSTUNREACH
+        113 => Status::HostUnreachable,
+        _ => Status::GeneralFailure,
     }
 }

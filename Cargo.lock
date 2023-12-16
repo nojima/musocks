@@ -217,6 +217,7 @@ dependencies = [
  "slog",
  "slog-term",
  "smallvec",
+ "thiserror",
  "tokio",
 ]
 

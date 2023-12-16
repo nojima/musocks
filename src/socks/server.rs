@@ -2,12 +2,11 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use anyhow::bail;
 use slog::{info, o};
 use tokio::io::{AsyncBufRead, AsyncReadExt, AsyncWrite, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::socks::{socks4, socks5, SOCKS4, SOCKS5};
+use crate::socks::*;
 
 pub struct Server {
     pub logger: slog::Logger,
@@ -50,7 +49,7 @@ impl Handler {
         }
     }
 
-    async fn handle_conn(&self, client: TcpStream, client_addr: SocketAddr) -> anyhow::Result<()> {
+    async fn handle_conn(&self, client: TcpStream, client_addr: SocketAddr) -> Result<()> {
         let started_at = Instant::now();
         info!(self.logger, "proxy start"; "client_addr" => client_addr);
 
@@ -58,14 +57,18 @@ impl Handler {
             let (r, w) = client.into_split();
             (BufReader::new(r), w)
         };
-        let mut preamble: [u8; 2] = Default::default();
+        let mut preamble = [0u8; 2];
         client_reader.read_exact(&mut preamble).await?;
 
         let version = preamble[0];
         let upstream = match version {
-            SOCKS4 => socks4::handle(&mut client_reader, &mut client_writer, preamble[1]).await?,
-            SOCKS5 => socks5::handle(&mut client_reader, &mut client_writer, preamble[1]).await?,
-            _ => bail!("unsupported SOCKS version: {}", version),
+            SOCKS4 => {
+                socks4::handshake(&mut client_reader, &mut client_writer, preamble[1]).await?
+            }
+            SOCKS5 => {
+                socks5::handshake(&mut client_reader, &mut client_writer, preamble[1]).await?
+            }
+            _ => return Err(Error::ProtocolError("unsupported SOCKS version")),
         };
 
         let (upstream_reader, upstream_writer) = {
