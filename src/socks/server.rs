@@ -57,10 +57,10 @@ impl Handler {
             let (r, w) = client.into_split();
             (BufReader::new(r), w)
         };
-        let mut preamble = [0u8; 2];
-        client_reader.read_exact(&mut preamble).await?;
 
+        let preamble = read_preamble(&mut client_reader).await?;
         let version = preamble[0];
+
         let (request, upstream) = match version {
             SOCKS4 => {
                 socks4::handshake(&mut client_reader, &mut client_writer, preamble[1]).await?
@@ -75,14 +75,14 @@ impl Handler {
             let (r, w) = upstream.into_split();
             (BufReader::new(r), w)
         };
-        let (uploaded_bytes, downloaded_bytes) = self
-            .do_proxy(
-                client_reader,
-                client_writer,
-                upstream_reader,
-                upstream_writer,
-            )
-            .await?;
+
+        let (uploaded_bytes, downloaded_bytes) = do_proxy(
+            client_reader,
+            client_writer,
+            upstream_reader,
+            upstream_writer,
+        )
+        .await?;
 
         let elapsed = started_at.elapsed();
         info!(self.logger, "proxy done";
@@ -94,28 +94,32 @@ impl Handler {
         );
         Ok(())
     }
+}
 
-    async fn do_proxy(
-        &self,
-        client_reader: impl AsyncBufRead + Unpin,
-        client_writer: impl AsyncWrite + Unpin,
-        upstream_reader: impl AsyncBufRead + Unpin,
-        upstream_writer: impl AsyncWrite + Unpin,
-    ) -> io::Result<(u64, u64)> {
-        tokio::try_join!(
-            self.copy_and_drop(client_reader, upstream_writer),
-            self.copy_and_drop(upstream_reader, client_writer),
-        )
-    }
+async fn read_preamble(reader: &mut (impl AsyncBufRead + Unpin)) -> io::Result<[u8; 2]> {
+    let mut preamble = [0u8; 2];
+    reader.read_exact(&mut preamble).await?;
+    Ok(preamble)
+}
 
-    async fn copy_and_drop(
-        &self,
-        mut reader: impl AsyncBufRead + Unpin,
-        mut writer: impl AsyncWrite + Unpin,
-    ) -> io::Result<u64> {
-        let n = tokio::io::copy_buf(&mut reader, &mut writer).await?;
-        drop(writer);
-        drop(reader);
-        Ok(n)
-    }
+async fn do_proxy(
+    client_reader: impl AsyncBufRead + Unpin,
+    client_writer: impl AsyncWrite + Unpin,
+    upstream_reader: impl AsyncBufRead + Unpin,
+    upstream_writer: impl AsyncWrite + Unpin,
+) -> io::Result<(u64, u64)> {
+    tokio::try_join!(
+        copy_and_drop(client_reader, upstream_writer),
+        copy_and_drop(upstream_reader, client_writer),
+    )
+}
+
+async fn copy_and_drop(
+    mut reader: impl AsyncBufRead + Unpin,
+    mut writer: impl AsyncWrite + Unpin,
+) -> io::Result<u64> {
+    let n = tokio::io::copy_buf(&mut reader, &mut writer).await?;
+    drop(writer);
+    drop(reader);
+    Ok(n)
 }
